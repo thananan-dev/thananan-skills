@@ -1,0 +1,7 @@
+{
+  "name": "thananan-skills",
+  "skills": [
+    "./skills/moon-scout",
+    "./skills/mission-log"
+  ]
+}
