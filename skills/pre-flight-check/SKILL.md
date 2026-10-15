@@ -9,7 +9,7 @@ Talk to the user in **Thai**. Code identifiers, file paths and SQL stay as-is.
 
 **Reader = someone new to this project.** Assume they do not know the business, the vocabulary or the code layout, and that the diff was produced by an AI from a requirement they only skimmed. The page must let them understand the whole change without opening another file.
 
-Files in this skill: [`flow-viewer.html`](flow-viewer.html) (the page template), [`build_flow.py`](build_flow.py) (validates `flow.json` and builds the page), [`TEMPLATES.md`](TEMPLATES.md) (the `flow.json` schema — read it before writing).
+Files in this skill: [`flow-viewer.html`](flow-viewer.html) (the page template), [`build_flow.py`](build_flow.py) (validates `flow.json` and builds the page), [`TEMPLATES.md`](TEMPLATES.md) (the `flow.json` schema — read it before writing). Editing this skill itself (not reviewing a diff with it)? Read [`DECISIONS.md`](DECISIONS.md) first — it records which design choices here are load-bearing and why.
 
 ## 1. Fix the scope
 
@@ -33,7 +33,7 @@ Before tracing anything, pick the **lanes** (`flow.json`'s top-level `lanes`, sc
 - **Backend, layered:** `api | app | domain | infra | db` (the default when `lanes` is omitted).
 - **Frontend, component-driven:** e.g. `page | component | hook | store | api-client`.
 - **Full-stack diff touching both sides:** one lane set spanning FE → BE (e.g. `ui | client | api | service | db`), then one chain per entry point as usual — a backend-only chain simply leaves the FE lanes empty for its nodes, and vice versa.
-3–6 lanes is the usual range; every node's `layer` must be one of the ids declared.
+2–6 lanes (enforced by `build_flow.py`); every node's `layer` must be one of the ids declared.
 
 For every entry point the diff touches (boot/migration, each HTTP route, job/CLI mode, frontend page), trace the **function call chain the code actually executes**, through changed **and** unchanged functions, down to storage and back. Verify every node by reading the code and grepping the call site — never infer a chain from file names. Number nodes `[chain.step]`; sub-calls get `[2.4a]`, `[2.4b]` with `sub: true` and a `parent`.
 
