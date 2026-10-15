@@ -27,3 +27,13 @@ Found by actually running the skill against real diffs after the Go+React-only v
 - `"lanes": []` produced the same confusing `layer must be one of []` message repeated once per node instead of one clear explanation.
 - `SKILL.md` said lanes are "3–6" while `TEMPLATES.md` said "2–6", and neither was enforced — now 2–6 is the one canonical range and `build_flow.py` enforces it.
 - The default lane descriptions still carried project-specific wording (`infra` read "repository / BigQuery") that would leak into any repo that didn't set its own `lanes`.
+
+## Later hardening, round 2 (2026-10-16, the file/line check's own false positives)
+
+The `file`/`line` check added in round 1 above (whole-string match in a ±few-line window) was itself wrong in exactly the way decision #8 exists to prevent — found by running it against a real `flow.json` that had every line number right and still got 17 nodes rejected:
+
+- It matched the **whole display name** as a literal substring (`"CriteriaConfigHandlers.Update"`), but a display name isn't source text — Go writes that as `func (h CriteriaConfigHandlers) Update(`, never dotted. Every receiver method, and every name with a prefix like `SQL ...`/`migration ...`, failed this way. Fixed: extract identifier-like tokens (≥3 chars, whole-word match) from the name instead of matching the string verbatim; for a dotted `Type.Method` or `(*Type).Method` name, only the member name counts — the type name also appears on the constructor and on sibling methods, so matching it lets the wrong line pass.
+- The window (`line-3` to `line+5`) was wide enough that an off-by-one or off-by-two citation — the exact mistake this check exists to catch — still passed. Fixed: the cited line must itself match (a comment/doc-comment line one above the real declaration doesn't count, except sqlc's `-- name: X`); if it doesn't, the nearest real declaration within ±15 lines is suggested as "did you mean line N?" instead of silently accepting a nearby line.
+- A sub-node nested under another sub-node (parent chain `2.2` → `2.2a` → `2.2b`) was forced into `2.2aa` instead of `2.2b`. Fixed: walk the `parent` chain up to the nearest non-sub ancestor (the main numbered step) before checking the letter suffix, with a cycle guard.
+
+Known gaps, left as-is: a node `name` with no real identifier in it (pure prose) gets a loose/skipped check; `inside` step line numbers aren't checked at all; `#` in `COMMENT_PREFIXES` means a cited C/C++ `#define` line is (wrongly) treated as a comment.

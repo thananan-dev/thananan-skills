@@ -16,6 +16,7 @@ import sys
 DEFAULT_LAYERS = ["api", "app", "domain", "infra", "db"]
 STATUSES = {"new", "changed", "same"}
 MIN_LANES, MAX_LANES = 2, 6
+COMMENT_PREFIXES = ("//", "#", "/*", "*", "--", "<!--", '"""', "'''")
 
 
 def check_lanes(data: dict) -> tuple[set, list[str], bool]:
@@ -50,7 +51,7 @@ def check_lanes(data: dict) -> tuple[set, list[str], bool]:
 
 
 def check_file_line(n: dict, root: pathlib.Path) -> str | None:
-    """Best-effort check that n['name'] actually appears near n['file']:n['line']."""
+    """Check that the declaration n["name"] names sits on n["file"]:n["line"] exactly."""
     file, line = n.get("file"), n.get("line")
     if not file or line is None:
         return None
@@ -67,17 +68,38 @@ def check_file_line(n: dict, root: pathlib.Path) -> str | None:
         return f'could not read "{file}": {e}'
     if not (1 <= line <= len(lines)):
         return f'"{file}" only has {len(lines)} lines, "line": {line} is out of range'
-    # Heuristic identifier extraction: strip markdown backticks/JSX angle brackets and
-    # any call-style parens, so `` `lockEligibility` ``, "<OrderList>" and
-    # "processOrder()" all compare against the raw source line correctly.
-    name = re.sub(r"[`<>]", "", str(n.get("name", "")))
-    name = re.sub(r"\(.*\)\s*$", "", name).strip()
-    if not name:
+    name = str(n.get("name", ""))
+    # A node about the file itself (a migration, a config file) names the file:
+    # there is no single declaration line to check.
+    if path.name in name:
         return None
-    window = lines[max(0, line - 3): line + 5]
-    if not any(name in l for l in window):
-        return f'"{name}" not found near {file}:{line} (checked lines {max(1, line - 2)}-{line + 5}) — line number looks off'
-    return None
+    # A display name is not a source string: "`CriteriaConfigHandlers.Update`",
+    # "(*Employee).VerifyEligibilitiesWith", "SQL `CreateIncentiveUpload`",
+    # "`DefaultCriteriaConfigs` (Reset)". Match its identifiers as whole words.
+    tokens = [t for t in re.findall(r"[A-Za-z_$][\w$]*", name) if len(t) >= 3]
+    # "Type.Method" or "(*Type).Method": only the member is the declaration's own
+    # name; the type also appears on its constructor and on sibling methods.
+    member = re.search(r"[\w)]\.([A-Za-z_$][\w$]*)", name)
+    if member:
+        tokens = [member.group(1)]
+    if not tokens:
+        return None
+    pattern = re.compile(r"(?<![\w$])(?:" + "|".join(map(re.escape, tokens)) + r")(?![\w$])")
+    # The cited line must be the declaration itself: a window would let an
+    # off-by-one or off-by-two line pass, which is the mistake this check exists for.
+    # A doc comment usually names its function on the line above, so comment lines
+    # never count, except sqlc's "-- name: X", which is the declaration.
+    def declares(k: int) -> bool:
+        text = lines[k - 1].strip()
+        if text.startswith(COMMENT_PREFIXES) and not re.match(r"--\s*name:", text):
+            return False
+        return bool(pattern.search(text))
+
+    if declares(line):
+        return None
+    nearby = [k for k in range(max(1, line - 15), min(len(lines), line + 15) + 1) if declares(k)]
+    hint = f" — did you mean line {min(nearby, key=lambda k: abs(k - line))}?" if nearby else ""
+    return f'none of {tokens} is on {file}:{line}{hint}'
 
 
 def check(data: dict, root: pathlib.Path | None = None) -> list[str]:
@@ -85,6 +107,7 @@ def check(data: dict, root: pathlib.Path | None = None) -> list[str]:
     layers, problems, skip_layer_check = check_lanes(data)
     for chain in data.get("chains", []):
         ids = {n["id"] for n in chain["nodes"]}
+        by_id = {n["id"]: n for n in chain["nodes"]}
         for n in chain["nodes"]:
             where = f'{chain.get("tab")} [{n.get("id")}]'
             if not skip_layer_check and n.get("layer") not in layers:
@@ -95,8 +118,16 @@ def check(data: dict, root: pathlib.Path | None = None) -> list[str]:
                 parent = n.get("parent")
                 if parent not in ids:
                     problems.append(f"{where}: sub node needs a parent id from the same chain")
-                elif not re.fullmatch(re.escape(parent) + r"[a-z]+", str(n.get("id", ""))):
-                    problems.append(f'{where}: sub node id should be its parent id followed by a letter (e.g. "{parent}a"), got "{n.get("id")}"')
+                else:
+                    # Sub-calls are lettered off the main step they hang from, nested
+                    # or not: under [2.2], lockEligibility is 2.2a and the GetLatest it
+                    # calls is 2.2b with parent 2.2a.
+                    top, seen = parent, set()
+                    while by_id[top].get("sub") and by_id[top].get("parent") in by_id and top not in seen:
+                        seen.add(top)
+                        top = by_id[top]["parent"]
+                    if not re.fullmatch(re.escape(top) + r"[a-z]+", str(n.get("id", ""))):
+                        problems.append(f'{where}: sub node id should be its main step\'s id followed by a letter (e.g. "{top}a"), got "{n.get("id")}"')
             if not n.get("why"):
                 problems.append(f"{where}: why is required")
             if n.get("status") == "changed" and not n.get("changed"):

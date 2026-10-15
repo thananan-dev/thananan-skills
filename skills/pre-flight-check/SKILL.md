@@ -89,7 +89,7 @@ Then build it with the script in **this skill's directory** (the base directory 
 python3 <skill-dir>/build_flow.py .claude/reviews/<branch>/flow.json
 ```
 
-The script refuses a node without `why`, a bad `layer`/`status`, a sub node without a parent, or a ✏️ node without `changed`.
+Run it from the repo root — every node's `file` is resolved relative to the current directory. The script refuses: a node without `why`; a bad `layer`/`status`; a sub node without a parent in the same chain, or whose `id` isn't its main step's id plus a letter (e.g. `2.2a`, and `2.2b` if it nests under `2.2a`); a ✏️ node without `changed`; a bad `lanes` list (empty, malformed entries, duplicate ids, or outside 2–6); and — the one most worth knowing about — a node whose `file`/`line` doesn't actually declare something matching its `name` (comment/doc lines don't count, except a sqlc `-- name:` line). That last check is a heuristic word match, not a parser: it can be fooled by a name that's pure prose with no real identifier in it, and `#` in a `name` lookup treats a C/C++ `#define` line as a comment — re-check those by hand.
 
 ## 6. Hand it over
 
