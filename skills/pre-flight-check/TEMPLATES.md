@@ -7,7 +7,8 @@ The only file you write. `build_flow.py` validates it and builds `FLOW.html` nex
 ```jsonc
 {
   "title": "หัวข้อเต็ม", "short": "ชื่อแท็บเบราว์เซอร์",
-  "scope": "<branch> @ <sha> · ยังไม่ commit · m ไฟล์แก้ + n ไฟล์ใหม่ · +a/−d",
+  "scope": "<branch> @ <sha> · ยังไม่ commit · m ไฟล์แก้ + n ไฟล์ใหม่ · +a/−d",  // โหมด default (uncommitted only)
+  // โหมด --branch: "<branch> @ <sha> · ทั้ง branch ตั้งแต่แยกจาก <base>@<base-sha> · m ไฟล์แก้ + n ไฟล์ใหม่ · +a/−d"
   "why": ["**เดิม:** ...", "**หลัง:** ...", "**คำศัพท์:** ..."],          // `code` และ **bold** ใช้ได้
   "impacts": [{"level": "red|orange|yellow", "node": "2.4", "text": "..."}], // node ว่างได้ถ้าอยู่นอก chain
   "lanes": [{"id": "ui", "name": "UI", "sub": "component / page"}, ...],  // ไม่บังคับ — ตั้งเลนเองให้ตรงกับสถาปัตยกรรมของ repo นี้ (2–6 เลน) ไม่ใส่ = ใช้ค่า default 5 เลน api|app|domain|infra|db
