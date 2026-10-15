@@ -14,3 +14,4 @@ This picks up the skills listed in `.claude-plugin/plugin.json` and walks you th
 
 - **moon-scout** — analyzes a UI screenshot/SVG section by section before writing any component code, and asks instead of guessing when something is unclear.
 - **mission-log** — drafts a Merge/Pull Request description (Summary / Changes / Test plan) from the branch's git history, after asking for the context that isn't in the diff.
+- **pre-flight-check** — turns the current uncommitted diff into one interactive page (`FLOW.html`): the call chains the change runs through, every function's file/caller/why/what-changed, and the impacts — so a reviewer can walk the whole change without opening another file.

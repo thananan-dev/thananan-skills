@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Flow Review</title>
+<style>
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6b66; --line:#d9d8d2;
+  --new:#1f8a4c; --new-bg:#e6f4ec; --chg:#b26a00; --chg-bg:#fdf1dc; --same:#7a7a74; --same-bg:#f0f0ec;
+  --red:#c0392b; --red-bg:#fbe9e7; --orange:#c76a00; --yellow:#8a7400; --accent:#2f5bd3;
+  --lane:#fbfbf9;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#151514; --panel:#1f1f1d; --ink:#ecebe6; --muted:#a3a29b; --line:#3a3a36;
+  --new:#5fd08f; --new-bg:#163323; --chg:#f0b14a; --chg-bg:#3a2a10; --same:#a3a29b; --same-bg:#2a2a27;
+  --red:#ff7b6b; --red-bg:#3a1a16; --orange:#f0a04a; --yellow:#d9c35a; --accent:#8aa8ff; --lane:#1a1a19;
+}}
+:root[data-theme="dark"]{
+  --bg:#151514; --panel:#1f1f1d; --ink:#ecebe6; --muted:#a3a29b; --line:#3a3a36;
+  --new:#5fd08f; --new-bg:#163323; --chg:#f0b14a; --chg-bg:#3a2a10; --same:#a3a29b; --same-bg:#2a2a27;
+  --red:#ff7b6b; --red-bg:#3a1a16; --orange:#f0a04a; --yellow:#d9c35a; --accent:#8aa8ff; --lane:#1a1a19;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "Sarabun","Noto Sans Thai",system-ui,-apple-system,sans-serif}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+header{padding:20px 24px 8px}
+h1{font-size:22px;margin:0 0 4px;padding-right:90px}
+.scope{color:var(--muted);font-size:13px}
+.why{margin:12px 0 0;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:980px}
+.why p{margin:4px 0}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0;font-size:13px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.s-new{background:var(--new-bg);color:var(--new)} .s-changed{background:var(--chg-bg);color:var(--chg)} .s-same{background:var(--same-bg);color:var(--same)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;padding:12px 24px 0;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
+.tab{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px 8px 0 0;cursor:pointer;font:inherit;font-size:14px;margin-bottom:-1px}
+.tab[aria-selected="true"]{border-bottom-color:var(--bg);background:var(--bg);font-weight:700}
+main{display:grid;grid-template-columns:minmax(0,var(--split,44%)) 14px minmax(0,1fr);gap:0;padding:16px 24px 40px}
+.divider{cursor:col-resize;display:flex;align-items:flex-start;justify-content:center;padding-top:40px;user-select:none;touch-action:none}
+.divider::before{content:"";width:4px;height:60px;border-radius:4px;background:var(--line)}
+.divider:hover::before,.divider.drag::before{background:var(--accent)}
+body.focus main{grid-template-columns:0 0 minmax(0,1fr)} body.focus main>section,body.focus .divider{visibility:hidden;overflow:hidden}
+@media (max-width:1000px){ main{grid-template-columns:minmax(0,1fr)} .divider{display:none} }
+body.narrow main{grid-template-columns:minmax(0,1fr)} body.narrow .board{overflow:visible} body.narrow .detail{display:none}
+.chain-title{font-size:17px;margin:0 0 4px}
+.chain-sub{color:var(--muted);font-size:13px;margin:0 0 12px}
+.board{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0 0 12px;overflow-x:auto}
+.grid{display:grid;position:relative}
+.lanehead{position:sticky;top:0;padding:6px 4px;font-size:11.5px;font-weight:700;color:var(--muted);text-align:center;border-bottom:1px solid var(--line);background:var(--panel);z-index:2}
+.lanehead small{display:block;font-weight:400}
+.lanebg{grid-row:2 / span 999;border-left:1px dashed var(--line);background:var(--lane)}
+.lanebg:nth-child(odd){background:transparent}
+.stepno{grid-column:1;font-size:12px;color:var(--muted);text-align:right;padding:16px 6px 0 0;font-variant-numeric:tabular-nums}
+.node{margin:6px 4px;padding:6px 7px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);cursor:pointer;position:relative;z-index:1;text-align:left;font:inherit;color:inherit;width:calc(100% - 8px)}
+.node:hover{border-color:var(--accent)}
+.node:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.node.sel{box-shadow:0 0 0 3px var(--accent)}
+.node.new{border-color:var(--new)} .node.changed{border-color:var(--chg)} .node.same{border-style:dashed}
+.node.sub{margin-left:14px;width:calc(100% - 18px)}
+.snode .nm,.node .nm{font-weight:700;font-size:12.5px;word-break:normal;overflow-wrap:break-word}
+.snode .wy,.node .wy{font-size:11.5px;font-size:12.5px;color:var(--muted);margin-top:2px}
+.snode .top,.node .top{display:flex;gap:6px;align-items:center;justify-content:space-between;margin-bottom:2px}
+.snode .id,.node .id{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.imp{position:absolute;top:-8px;right:-6px;font-size:13px}
+svg.wires{position:absolute;left:0;top:0;pointer-events:none;z-index:0;overflow:visible}
+.detail{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 80px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;font-size:15px}
+.dtools{display:flex;justify-content:flex-end;gap:6px;margin:-6px -8px 6px 0}
+.dtools button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:2px 10px;cursor:pointer;font:inherit;font-size:12.5px}
+@media (max-width:1000px){ .detail{position:static;max-height:none} }
+.detail h2{font-size:20px;margin:0 0 6px;word-break:break-word}
+.detail h3{font-size:14px;margin:16px 0 6px;color:var(--muted)}
+.kv{display:grid;grid-template-columns:84px 1fr;gap:4px 10px;font-size:14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;word-break:break-word}
+table{border-collapse:collapse;width:100%;font-size:14px;table-layout:fixed}
+table.steps th:nth-child(1){width:34px} table.steps th:nth-child(2){width:70px} td,th{word-break:break-word}
+th,td{border-top:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px}
+td.ln{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}
+.ba{display:grid;grid-template-columns:1fr;gap:6px}
+.ba div{padding:8px 10px;border-radius:8px;font-size:13.5px}
+.ba .b{background:var(--same-bg)} .ba .a{background:var(--chg-bg)}
+.ba strong{display:block;font-size:12px;color:var(--muted)}
+.impbox{padding:8px 10px;border-radius:8px;background:var(--red-bg);font-size:13.5px;margin-top:6px}
+.empty{color:var(--muted)}
+.impacts{max-width:980px;margin:12px 0 0}
+.impacts li{margin:4px 0;cursor:pointer}
+.impacts li:hover{color:var(--accent)}
+.stack{padding:12px}
+.stack .snode{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;position:relative}
+.stack .snode.new{border-color:var(--new)} .stack .snode.changed{border-color:var(--chg)} .stack .snode.same{border-style:dashed}
+.stack .snode[aria-expanded="true"]{box-shadow:0 0 0 3px var(--accent)}
+.stack .item{position:relative;margin:0 0 22px}
+.stack .item.sub{margin-left:28px;margin-top:-12px}
+.stack .item:not(:last-child)::after{content:"▼";position:absolute;left:18px;bottom:-19px;font-size:11px;color:var(--muted)}
+.stack .item.sub::before{content:"↳";position:absolute;left:-18px;top:8px;color:var(--muted)}
+.layer{display:inline-block;font-size:11px;font-weight:700;padding:0 6px;border-radius:4px;background:var(--same-bg);color:var(--muted);margin-right:4px}
+.inl table{table-layout:fixed} .inl table.steps th:nth-child(1){width:30px} .inl table.steps th:nth-child(2){width:62px} .inl td,.inl th{word-break:break-word} .kv dd.mono{word-break:break-all}
+.inl{overflow-wrap:anywhere;margin:8px 0 0;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.inl h2{font-size:16px}
+.pageview{padding:16px 24px 40px;max-width:1100px}
+.pblock{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:0 0 14px}
+.pblock h3{margin:0 0 8px;font-size:16px}
+.pblock ul{margin:4px 0;padding-left:20px}
+.pageview table{table-layout:auto}
+main[hidden]{display:none}
+@media (max-width:760px){
+  .pageview{padding:12px 16px 32px}
+  .pageview table,.pageview tbody,.pageview tr,.pageview td{display:block;width:100%}
+  .pageview thead{display:none}
+  .pageview tr{border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:0 0 10px}
+  .pageview td{border:0;padding:3px 0}
+  .pageview td::before{content:attr(data-label);display:block;font-size:11.5px;font-weight:700;color:var(--muted)}
+}
+.themebtn{position:absolute;right:24px;top:20px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit;font-size:13px}
+@media (max-width:640px){ header,main,.tabs{padding-left:16px;padding-right:16px} .themebtn{right:16px} }
+main>section{min-width:0}
+</style>
+</head>
+<body>
+<header style="position:relative">
+  <button class="themebtn" id="themebtn" type="button">โหมดสี</button>
+  <h1 id="title"></h1>
+  <div class="scope" id="scope"></div>
+  <div class="why" id="why"></div>
+  <div class="legend">
+    <span class="chip s-new">🆕 ใหม่</span><span class="chip s-changed">✏️ แก้ของเดิม</span><span class="chip s-same">⚪ ไม่ได้แก้ แต่อยู่บนเส้นทาง</span>
+    <span>· ลูกศรทึบ = เรียกต่อตามลำดับ · ลูกศรประ = ฟังก์ชันย่อยที่ node นั้นเรียก · คลิก node เพื่ออ่านรายละเอียดด้านขวา · ลากแถบกลางเพื่อปรับขนาด หรือกด ⤢ เพื่ออ่านเต็มจอ</span>
+  </div>
+  <details class="impacts"><summary><strong>⚠️ จุดกระทบ</strong> (คลิกเพื่อกระโดดไปที่ node)</summary><ul id="impacts"></ul></details>
+</header>
+<nav class="tabs" id="tabs" role="tablist"></nav>
+<section id="pageview" class="pageview" hidden></section>
+<main>
+  <section>
+    <h2 class="chain-title" id="ctitle"></h2>
+    <p class="chain-sub" id="csub"></p>
+    <div class="board" id="board"></div>
+  </section>
+  <div class="divider" id="divider" role="separator" aria-label="ลากเพื่อปรับขนาด" tabindex="0"></div>
+  <aside class="detail" id="detail" aria-live="polite"><p class="empty">คลิก node ใดก็ได้ในแผนภาพ เพื่อดูว่าฟังก์ชันนั้นอยู่ไฟล์ไหน ใครเรียก เรียกทำไม ข้างในทำอะไรทีละขั้น แก้อะไร และ type ที่เกี่ยว</p></aside>
+</main>
+<script id="flow-data" type="application/json">/*FLOW_DATA*/</script>
+<script>
+const D = JSON.parse(document.getElementById('flow-data').textContent);
+const LANES = D.lanes || [
+  {id:'api',name:'API',sub:'รับ HTTP / route / wiring'},
+  {id:'app',name:'Application',sub:'ลำดับงาน'},
+  {id:'domain',name:'Domain',sub:'กฎธุรกิจ / type'},
+  {id:'infra',name:'Infra',sub:'repository / BigQuery'},
+  {id:'db',name:'DB / SQL',sub:'query / migration'}];
+const ST = {new:['🆕 ใหม่','s-new'],changed:['✏️ แก้','s-changed'],same:['⚪ เดิม','s-same']};
+const IMP = {red:'🔴',orange:'🟠',yellow:'🟡'};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nmd = s => esc(String(s??'').replace(/`/g,'')).replace(/([a-z])([A-Z])/g,'$1<wbr>$2').replace(/\./g,'.<wbr>');
+const md = s => esc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+let cur = 0, sel = null, narrow = false;
+const store = { get(k){ try{return localStorage.getItem(k)}catch(e){return null} }, set(k,v){ try{localStorage.setItem(k,v)}catch(e){} } };
+
+document.getElementById('title').textContent = D.title;
+document.title = D.short || 'Code Flow Review';
+document.getElementById('scope').textContent = D.scope;
+document.getElementById('why').innerHTML = (D.why||[]).map(p=>'<p>'+md(p)+'</p>').join('');
+document.getElementById('impacts').innerHTML = (D.impacts||[]).map((im,i)=>
+  `<li data-i="${i}">${IMP[im.level]||''} <strong>${esc(im.node||'')}</strong> ${md(im.text)}</li>`).join('');
+document.getElementById('impacts').addEventListener('click', e => {
+  const li = e.target.closest('li'); if(!li) return;
+  const im = D.impacts[+li.dataset.i]; if(!im.node) return;
+  const ci = D.chains.findIndex(c => c.nodes.some(n => n.id === im.node));
+  if (ci >= 0) { showChain(ci); select(im.node, true); }
+});
+
+const tabs = document.getElementById('tabs');
+const NCH = D.chains.length, PAGES = D.pages || [];
+[...D.chains, ...PAGES].forEach((c,i) => {
+  const b = document.createElement('button');
+  b.className='tab'; b.type='button'; b.role='tab'; b.textContent=c.tab || c.title;
+  b.onclick = () => showTab(i); tabs.appendChild(b);
+});
+function showTab(i){ if (i < NCH) showChain(i); else showPage(i - NCH); }
+function showPage(j){
+  store.set('flow-tab', NCH + j);
+  [...tabs.children].forEach((b,k)=>b.setAttribute('aria-selected', k===NCH+j));
+  const pg = PAGES[j], pv = document.getElementById('pageview');
+  document.querySelector('main').hidden = true; pv.hidden = false;
+  let h = `<h2 class="chain-title">${esc(pg.title)}</h2>${pg.sub?`<p class="chain-sub">${md(pg.sub)}</p>`:''}`;
+  (pg.blocks||[]).forEach(b => {
+    h += '<div class="pblock">';
+    if (b.h) h += `<h3>${md(b.h)}</h3>`;
+    if (b.text) h += `<p>${md(b.text)}</p>`;
+    if (b.items) h += '<ul>' + b.items.map(x=>`<li>${md(x)}</li>`).join('') + '</ul>';
+    if (b.ba) h += `<div class="ba"><div class="b"><strong>ก่อน</strong>${md(b.ba[0])}</div><div class="a"><strong>หลัง</strong>${md(b.ba[1])}</div></div>`;
+    if (b.table) h += `<table><thead><tr>${b.table.head.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>` +
+      b.table.rows.map(r=>'<tr>'+r.map((c,k)=>`<td data-label="${esc(b.table.head[k]||'')}">${md(c)}</td>`).join('')+'</tr>').join('') + '</tbody></table>';
+    h += '</div>';
+  });
+  pv.innerHTML = h;
+}
+
+function showChain(i){
+  document.querySelector('main').hidden = false; document.getElementById('pageview').hidden = true;
+  cur = i; store.set('flow-tab', i);
+  [...tabs.children].forEach((b,j)=>b.setAttribute('aria-selected', j===i));
+  const c = D.chains[i];
+  document.getElementById('ctitle').textContent = c.title;
+  document.getElementById('csub').innerHTML = md(c.sub || '');
+  const board = document.getElementById('board');
+  narrow = window.innerWidth < 760; document.body.classList.toggle('narrow', narrow);
+  if (narrow) {
+    board.innerHTML = '<div class="stack">' + c.nodes.map(n => {
+      const [lbl,cls] = ST[n.status]||ST.same;
+      const lane = (LANES.find(l=>l.id===n.layer)||{}).name||'';
+      return `<div class="item ${n.sub?'sub':''}"><button type="button" class="snode ${n.status}" data-id="${esc(n.id)}" aria-expanded="false">
+        ${n.impact?`<span class="imp">${IMP[n.impact.level]}</span>`:''}
+        <div class="top"><span><span class="id">${esc(n.id)}</span> <span class="layer">${esc(lane)}</span></span><span class="chip ${cls}">${lbl}</span></div>
+        <div class="nm">${nmd(n.name)}</div><div class="wy">${md(n.short||n.why)}</div></button></div>`;
+    }).join('') + '</div>';
+    board.querySelectorAll('.snode').forEach(el => el.onclick = () => {
+      if (el.getAttribute('aria-expanded')==='true') { el.setAttribute('aria-expanded','false'); el.nextElementSibling?.remove(); sel=null; }
+      else select(el.dataset.id);
+    });
+    if (sel && c.nodes.find(n=>n.id===sel)) select(sel);
+    return;
+  }
+  const gridCols = `30px repeat(${LANES.length},minmax(108px,1fr))`;
+  const gridMinWidth = 30 + 108 * LANES.length;
+  let h = `<div class="grid" id="grid" style="grid-template-columns:${gridCols};min-width:${gridMinWidth}px"><div class="lanehead"></div>` +
+    LANES.map(l=>`<div class="lanehead">${esc(l.name)}<small>${esc(l.sub)}</small></div>`).join('');
+  LANES.forEach((l,k)=> h += `<div class="lanebg" style="grid-column:${k+2}"></div>`);
+  c.nodes.forEach((n,r) => {
+    const col = Math.max(0, LANES.findIndex(l=>l.id===n.layer))+2;
+    const row = r+2;
+    const [lbl,cls] = ST[n.status]||ST.same;
+    h += `<div class="stepno" style="grid-row:${row}">${n.sub?'':esc(n.id)}</div>`;
+    h += `<button type="button" class="node ${n.status} ${n.sub?'sub':''}" data-id="${esc(n.id)}" style="grid-column:${col};grid-row:${row}">
+      ${n.impact?`<span class="imp" title="จุดกระทบ">${IMP[n.impact.level]}</span>`:''}
+      <div class="top"><span class="id">${n.sub?'↳ ':''}${esc(n.id)}</span><span class="chip ${cls}">${lbl}</span></div>
+      <div class="nm">${nmd(n.name)}</div><div class="wy">${md(n.short||n.why)}</div></button>`;
+  });
+  h += '</div>';
+  board.innerHTML = h;
+  board.querySelectorAll('.node').forEach(el => el.onclick = () => select(el.dataset.id));
+  requestAnimationFrame(drawWires);
+  const first = (sel && c.nodes.find(n=>n.id===sel)) ? sel : null;
+  if (first) select(first); else document.getElementById('detail').innerHTML = '<p class="empty">คลิก node ใดก็ได้ในแผนภาพ เพื่อดูรายละเอียด</p>';
+}
+
+function drawWires(){
+  const grid = document.getElementById('grid'); if(!grid) return;
+  grid.querySelector('svg.wires')?.remove();
+  const c = D.chains[cur], gr = grid.getBoundingClientRect();
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns,'svg'); svg.setAttribute('class','wires');
+  svg.setAttribute('width', grid.scrollWidth); svg.setAttribute('height', grid.scrollHeight);
+  const style = getComputedStyle(document.documentElement);
+  const col = style.getPropertyValue('--muted').trim();
+  svg.innerHTML = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${col}"/></marker></defs>`;
+  const box = id => { const el = grid.querySelector(`.node[data-id="${CSS.escape(id)}"]`); if(!el) return null; const r = el.getBoundingClientRect(); return {x:r.left-gr.left, y:r.top-gr.top, w:r.width, h:r.height}; };
+  const link = (a,b,dashed) => {
+    const A = box(a), B = box(b); if(!A||!B) return;
+    let x1,y1,x2,y2,d;
+    if (Math.abs((A.x+A.w/2)-(B.x+B.w/2)) < 4) { x1=x2=A.x+A.w/2; y1=A.y+A.h; y2=B.y; d=`M${x1},${y1} L${x2},${y2}`; }
+    else { const right = B.x > A.x; x1 = right ? A.x+A.w : A.x; y1 = A.y+A.h/2; x2 = B.x+B.w/2; y2 = B.y; d=`M${x1},${y1} L${x2},${y1} L${x2},${y2}`; }
+    const p = document.createElementNS(ns,'path'); p.setAttribute('d',d); p.setAttribute('fill','none');
+    p.setAttribute('stroke',col); p.setAttribute('stroke-width','1.5'); if(dashed) p.setAttribute('stroke-dasharray','4 4');
+    p.setAttribute('marker-end','url(#ah)'); svg.appendChild(p);
+  };
+  let prev = null;
+  c.nodes.forEach(n => {
+    if (n.sub) { if (n.parent) link(n.parent, n.id, true); return; }
+    if (prev) link(prev, n.id, false); prev = n.id;
+  });
+  grid.appendChild(svg);
+}
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { const nb = window.innerWidth < 760; if (nb !== narrow) showChain(cur); else requestAnimationFrame(drawWires); }, 120); });
+
+function detailHTML(n){
+  const [lbl,cls] = ST[n.status]||ST.same;
+  let h = `<div style="display:flex;gap:8px;align-items:center"><span class="chip ${cls}">${lbl}</span><span class="id mono">[${esc(n.id)}]</span><span class="layer">${esc((LANES.find(l=>l.id===n.layer)||{}).name||'')}</span></div>
+    <h2>${md(n.name)}</h2>
+    <dl class="kv"><dt>📄 ไฟล์</dt><dd class="mono">${esc(n.file||'—')}${n.line?':'+esc(n.line):''}</dd>
+    <dt>↩ ใครเรียก</dt><dd>${md(n.caller||'—')}</dd></dl>
+    <h3>❓ ทำไมต้องเรียก</h3><div>${md(n.why)}</div>`;
+  if (n.impact) h += `<div class="impbox">${IMP[n.impact.level]} ${md(n.impact.text)}</div>`;
+  if (n.inside && n.inside.length) {
+    h += `<h3>🔍 ข้างในทำงานยังไง</h3><table class="steps"><thead><tr><th>ขั้น</th><th>บรรทัด</th><th>ทำอะไร</th><th>ทำไม / ถ้าไม่ผ่าน</th></tr></thead><tbody>` +
+      n.inside.map((s,i)=>`<tr><td>${i+1}</td><td class="ln">${esc(s[0])}</td><td>${md(s[1])}</td><td>${md(s[2]||'')}</td></tr>`).join('') + '</tbody></table>';
+  }
+  if (n.extra) n.extra.forEach(x => {
+    h += `<h3>${esc(x.title)}</h3><table><thead><tr>${x.head.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>` +
+      x.rows.map(r=>'<tr>'+r.map(c=>`<td>${md(c)}</td>`).join('')+'</tr>').join('') + '</tbody></table>';
+  });
+  if (n.changed) h += `<h3>🔧 แก้อะไร</h3><div class="ba"><div class="b"><strong>ก่อน</strong>${md(n.changed[0])}</div><div class="a"><strong>หลัง</strong>${md(n.changed[1])}</div></div>`;
+  if (n.types && n.types.length) {
+    h += `<h3>🧩 type ที่เกี่ยว</h3><table><thead><tr><th>type</th><th>ที่</th><th>ทำไมรูปร่างนี้</th></tr></thead><tbody>` +
+      n.types.map(t=>`<tr><td>${md(t[0])}</td><td class="ln mono">${esc(t[1])}</td><td>${md(t[2])}</td></tr>`).join('') + '</tbody></table>';
+  }
+  return h;
+}
+
+function select(id, scroll){
+  sel = id;
+  const n = D.chains[cur].nodes.find(x=>x.id===id); if(!n) return;
+  if (narrow) {
+    document.querySelectorAll('.stack .inl').forEach(el=>el.remove());
+    document.querySelectorAll('.snode').forEach(el=>el.setAttribute('aria-expanded', el.dataset.id===id));
+    const btn = document.querySelector(`.snode[data-id="${CSS.escape(id)}"]`);
+    const div = document.createElement('div'); div.className='inl'; div.innerHTML = detailHTML(n);
+    btn.after(div); if (scroll) btn.scrollIntoView({block:'start',behavior:'smooth'});
+    return;
+  }
+  document.querySelectorAll('.node').forEach(el => el.classList.toggle('sel', el.dataset.id===id));
+  const det = document.getElementById('detail'); det.innerHTML = `<div class="dtools"><button type="button" id="focusbtn">${document.body.classList.contains('focus')?'← กลับไปแผนภาพ':'⤢ ขยายอ่านเต็มจอ'}</button></div>` + detailHTML(n); det.scrollTop = 0;
+  document.getElementById('focusbtn').onclick = () => { document.body.classList.toggle('focus'); select(id); if(!document.body.classList.contains('focus')) requestAnimationFrame(drawWires); };
+  if (scroll) document.querySelector(`.node[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:'center',behavior:'smooth'});
+  if (window.innerWidth <= 1100) det.scrollIntoView({block:'start',behavior:'smooth'});
+}
+
+(function(){
+  const main = document.querySelector('main'), dv = document.getElementById('divider');
+  const saved = store.get('flow-split'); if (saved) main.style.setProperty('--split', saved);
+  const setSplit = pct => { pct = Math.max(25, Math.min(75, pct)); main.style.setProperty('--split', pct+'%'); store.set('flow-split', pct+'%'); };
+  dv.addEventListener('pointerdown', e => {
+    dv.setPointerCapture(e.pointerId); dv.classList.add('drag');
+    const r = main.getBoundingClientRect();
+    const mv = ev => setSplit((ev.clientX - r.left - 24) / (r.width - 48) * 100);
+    const up = () => { dv.classList.remove('drag'); dv.removeEventListener('pointermove', mv); dv.removeEventListener('pointerup', up); drawWires(); };
+    dv.addEventListener('pointermove', mv); dv.addEventListener('pointerup', up);
+  });
+  dv.addEventListener('keydown', e => {
+    const cur = parseFloat(getComputedStyle(main).getPropertyValue('--split')) || 44;
+    if (e.key==='ArrowLeft') { setSplit(cur-3); drawWires(); } if (e.key==='ArrowRight') { setSplit(cur+3); drawWires(); }
+  });
+})();
+const themeBtn = document.getElementById('themebtn');
+const savedTheme = store.get('flow-theme'); if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+themeBtn.onclick = () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'light' : 'dark'; store.set('flow-theme', document.documentElement.dataset.theme);
+  requestAnimationFrame(drawWires);
+};
+showTab(Math.min(+(store.get('flow-tab')||0), NCH + PAGES.length - 1));
+</script>
+</body>
+</html>

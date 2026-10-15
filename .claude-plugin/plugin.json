@@ -2,6 +2,7 @@
   "name": "thananan-skills",
   "skills": [
     "./skills/moon-scout",
-    "./skills/mission-log"
+    "./skills/mission-log",
+    "./skills/pre-flight-check"
   ]
 }
